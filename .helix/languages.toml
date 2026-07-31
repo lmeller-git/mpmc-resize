@@ -1,0 +1,3 @@
+[[language]]
+name = "rust"
+formatter = { command = "rustfmt" , args = ["+nightly", "--edition", "2024"] }

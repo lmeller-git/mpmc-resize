@@ -1,0 +1,9 @@
+/target
+
+# shuttle error messages (piped)
+shuttle.out
+
+# flamegraph ouptput
+**.data
+**.data.old
+**.svg
