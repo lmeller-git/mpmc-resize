@@ -4,73 +4,120 @@ use core::{marker::PhantomData, ptr::null_mut};
 use crossbeam_utils::CachePadded;
 
 use crate::{
-    MPMCQueue,
-    NewSized,
-    Resize,
+    BoundedCollection,
     sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering},
     utils::Backoff,
 };
 
-/// A dynamically sized concurrent queue.
+/// A dynamically resizable wrapper around a [`BoundedCollection`].
 ///
-/// Operations on this queue are lock-free if `resize` is not actively used.
-/// During an ongoing `resize` operation, `pop` and operations depending on it may block on stalled `pushes`.
-pub struct GrowableQueueCore<T, Q> {
+/// This type implements an algorithm that allows any [`BoundedCollection`] to be dynamically resized while preserving some of its properties.
+///
+/// ## Progress Guarantees:
+///
+/// - **Lock Freedom**: if the wrapped collection is lock-free, all corresponding operations on `Resizable` are also lock-free.
+/// - **Obstruction Freedom**: if the wrapped collection exposes obstruction-free methods, all corresponding operations on `Resizable` are also obstruction-free.
+///
+/// `Resizable::resize` is blocking both on allocator and stale readers and writers.
+///
+/// ## Ordering and Consistency Guarantees:
+///
+/// - **Empty-Linearizability**: if the wrapped colection is empty-linearizable, all corresponding operations on `Resizable` are also empty-linearizabe.
+/// - **Relaxed FIFO**: if the wrapped collection has FIFO ordering, `Resizable` has **k-FIFO** ordering, where k is the highest number of threads concurrently calling `try_pop` during a `resize`.
+///
+/// If no call to `resize` happens, or in steady-state, `Resizable` has strict FIFO ordering and is strictly linearizable, given the same holds for the wrapped collection.
+#[derive(Debug)]
+pub struct Resizable<Q> {
     cores: [AtomicPtr<Q>; 2],
     push_epoch: CachePadded<AtomicUsize>,
     pop_epoch: CachePadded<AtomicUsize>,
     active_pushes: CachePadded<[AtomicUsize; 2]>,
     active_reads: CachePadded<[AtomicUsize; 2]>,
     is_resizing: AtomicBool,
-    _slot: PhantomData<T>,
+    _marker: PhantomData<Box<Q>>,
 }
 
-impl<T, Q> GrowableQueueCore<T, Q>
-where
-    Q: NewSized,
-{
-    /// Constructs a new `Queue` with capacity `size`.
-    #[track_caller]
-    pub(crate) fn new(size: usize) -> GrowableQueueCore<T, Q> {
-        GrowableQueueCore {
+impl<Q> Resizable<Q> {
+    /// Constructs a new `Resizable` from two raw [`BoundedCollection`] objects.
+    pub fn from_parts(left: Q, right: Q) -> Self {
+        Self {
             cores: [
-                AtomicPtr::new(Box::into_raw(Box::new(Q::with_size(size)))),
-                AtomicPtr::new(Box::into_raw(Box::new(Q::with_size(1)))),
+                AtomicPtr::new(Box::into_raw(Box::new(left))),
+                AtomicPtr::new(Box::into_raw(Box::new(right))),
             ],
             active_pushes: [AtomicUsize::new(0), AtomicUsize::new(0)].into(),
             active_reads: [AtomicUsize::new(0), AtomicUsize::new(0)].into(),
             push_epoch: AtomicUsize::new(0).into(),
             pop_epoch: AtomicUsize::new(0).into(),
             is_resizing: AtomicBool::new(false),
-            _slot: PhantomData,
+            _marker: PhantomData,
         }
     }
 }
 
-impl<T, Q> Drop for GrowableQueueCore<T, Q> {
+impl<Q> Resizable<Q>
+where
+    Q: BoundedCollection,
+{
+    /// Constructs a new `Resizable` with capacity `size`.
+    #[track_caller]
+    pub fn with_capacity(size: usize) -> Resizable<Q> {
+        Self::from_parts(Q::with_capacity(size), Q::with_capacity(1))
+    }
+
+    /// Constructs a new `Resizable`
+    #[track_caller]
+    pub fn new() -> Self {
+        Self::from_parts(Q::with_capacity(1), Q::with_capacity(1))
+    }
+}
+
+impl<Q> Default for Resizable<Q>
+where
+    Q: Default,
+{
+    fn default() -> Self {
+        Self::from_parts(Q::default(), Q::default())
+    }
+}
+
+impl<Q> Drop for Resizable<Q> {
     fn drop(&mut self) {
         let left = self.cores[0].swap(null_mut(), Ordering::Acquire);
-        // Safety:
-        // No concurrent drops of this ds can happen.
-        // This queue was allocated in `new` or in `grow_by` with `Box::into_raw` and was not deallocated since then.
-        _ = unsafe { Box::from_raw(left) };
-
+        if !left.is_null() {
+            // Safety:
+            // No concurrent drops of this ds can happen.
+            // This queue was allocated in `new` or in `grow_by` with `Box::into_raw` and was not deallocated since then.
+            // we just checked that its non-null
+            _ = unsafe { Box::from_raw(left) };
+        }
         let right = self.cores[1].swap(null_mut(), Ordering::Acquire);
-        // Safety:
-        // No concurrent drops of this ds can happen.
-        // This queue was allocated in `new` or in `grow_by` with `Box::into_raw` and was not deallocated since then.
-        _ = unsafe { Box::from_raw(right) };
+        if !right.is_null() {
+            // Safety:
+            // No concurrent drops of this ds can happen.
+            // This queue was allocated in `new` or in `grow_by` with `Box::into_raw` and was not deallocated since then.
+            // we just checked that its non-null
+            _ = unsafe { Box::from_raw(right) };
+        }
     }
 }
 
 // we need SeqCst on epoch atomics and active_* atomics on the synchronization points,
 // because we have to synchronize between an asymmetric read/write - write/read pattern across the two
 
-impl<T, Q> Resize for GrowableQueueCore<T, Q>
+impl<Q> Resizable<Q>
 where
-    Q: NewSized + MPMCQueue<Item = T>,
+    Q: BoundedCollection,
 {
-    fn resize(&self, size: usize) -> bool {
+    /// Attempts to resize the capacity of the collection to `size` slots.
+    ///
+    /// **Note:** This method may block or fail spuriously.
+    /// Further a growth event may not be considered finished in regards of an other `resize` being possible until some time after the call to `resize`.
+    ///
+    /// Returns `true` if the resize was successfull, or `false` if
+    /// it failed. Failure can occur due to allocator exhaustion, thread
+    /// contention, or other implementation-specific/spurious conditions.
+    pub fn resize(&self, size: usize) -> bool {
         if size == 0 {
             return false;
         }
@@ -118,7 +165,7 @@ where
             backoff.backoff();
         }
 
-        let new_queue = Box::into_raw(Box::new(Q::with_size(size)));
+        let new_queue = Box::into_raw(Box::new(Q::with_capacity(size)));
 
         // Safety:
         // since pop_epoch == push_epoch all concurrent threads acces the queue at push_epoch % 2.
@@ -132,7 +179,7 @@ where
         let q = unsafe { Box::from_raw(old_queue) };
 
         #[cfg(not(any(loom, shuttle)))]
-        debug_assert!(q.pop().is_none());
+        debug_assert!(q.try_pop().is_none());
         #[cfg(any(loom, shuttle))]
         assert!(q.pop().is_none());
 
@@ -141,7 +188,7 @@ where
     }
 }
 
-impl<T, Q> GrowableQueueCore<T, Q> {
+impl<Q> Resizable<Q> {
     fn get_queue(&self, epoch: usize) -> &Q {
         let queue = self.cores[epoch % 2].load(Ordering::Acquire);
         // Safety:
@@ -189,20 +236,20 @@ impl<T, Q> GrowableQueueCore<T, Q> {
     }
 }
 
-impl<T, Q> GrowableQueueCore<T, Q>
+impl<Q> Resizable<Q>
 where
-    Q: MPMCQueue<Item = T>,
+    Q: BoundedCollection,
 {
     fn try_pop_from(
         &self,
         epoch: usize,
         registration: impl Fn(&Self, usize) -> bool,
-    ) -> Result<Option<T>, ()> {
+    ) -> Result<Option<Q::Item>, ()> {
         if !registration(self, epoch) {
             return Err(());
         }
 
-        let item = self.get_queue(epoch).pop();
+        let item = self.get_queue(epoch).try_pop();
 
         self.deregister_reader(epoch);
 
@@ -210,13 +257,13 @@ where
     }
 }
 
-impl<T, Q> MPMCQueue for GrowableQueueCore<T, Q>
+impl<Q> BoundedCollection for Resizable<Q>
 where
-    Q: MPMCQueue<Item = T>,
+    Q: BoundedCollection,
 {
-    type Item = T;
+    type Item = Q::Item;
 
-    fn push(&self, item: Self::Item) -> Result<(), Self::Item> {
+    fn try_push(&self, item: Self::Item) -> Result<(), Self::Item> {
         let mut backoff = Backoff::new();
         loop {
             let push_epoch = self.push_epoch.load(Ordering::Acquire);
@@ -225,7 +272,7 @@ where
             #[cfg(loom)]
             crate::sync::atomic::fence(Ordering::SeqCst);
             if self.push_epoch.load(Ordering::SeqCst) == push_epoch {
-                let r = self.get_queue(push_epoch).push(item);
+                let r = self.get_queue(push_epoch).try_push(item);
 
                 self.active_pushes[push_epoch % 2].fetch_sub(1, Ordering::Release);
                 return r;
@@ -235,7 +282,7 @@ where
         }
     }
 
-    fn pop(&self) -> Option<Self::Item> {
+    fn try_pop(&self) -> Option<Self::Item> {
         #[cfg(any(shuttle, loom))]
         let mut backoff = Backoff::new();
 
@@ -285,23 +332,26 @@ where
                         continue;
                     }
 
-                    // at this point the old queue did not contain any items, even though items are in-flight. At this point the new queue may already contain items.
+                    // at this point the old queue did not contain any items, even though items are in-flight. At this point the new container may already contain items.
                     // We face a tradeoff:
                     //
                     // a) continue in the inner loop and block on the active_pushers -> violates non-blocking/obstruction-freedom guarantees
-                    // b) check the new queue -> opens up the possibilty for item reordering, even in spsc scenarios, i.e. violates FIFO guarantees + linearizability
-                    // It is worth noting here that the extend of reordering per item is bounded exactly by the number of threads concurrently executing `pop` during a `push` AND `resize`.
-                    // c) bail, even though the queue is non-empty -> violates linearizability (and emptiness assumptions) in that case.
+                    // b) check the new container -> opens up the possibilty for item reordering, even in spsc scenarios, i.e. violates FIFO guarantees + linearizability
+                    // It is worth noting here that the extend of reordering per item is bounded exactly by the number of threads concurrently executing `pop` during a `push` AND `resize`
+                    // and the number of items reordered is bounded by exactly those threads calling `push` in this scenario.
+                    // In practice the rank is much lower, because a specific schedule is reuqired for a reordering to happen.
+                    // c) bail, even though the container is non-empty -> violates linearizability (and emptiness assumptions) in that case.
                     // Even worse: if some active_pusher is indefinitely dead, we will henceforth only bail. Thus this option implicitly blocks on the stalled pusher.
                     //
                     // c is of course unaccaptable.
                     //
-                    // This would be circumventeable iff a helping mechanims where added or the old queue were inactivated, both of which is not possible given the opaque inner queue type.
+                    // This would be circumventeable iff a helping mechanims where added or the old container were inactivated,
+                    // both of which is not possible given the opaque inner container type and without large changes to the algorithm.
                     //
                     // the fundamental question is:
-                    // Do we want complete lock-freedom in `push` and `pop`, or do we want strict 0-FIFO ordering always.
-                    // This tradeoff may fall differently in different contexts, however it seems reasonable to relax strict FIFO guarantees
-                    // and accept N-FIFO semantics while resizing the queue. N-FIFO semantics should in practice keep most of the benefits of 0-FIFO, while stll preserving lock-freedom.
+                    // Do we want complete lock-freedom in `push` and `pop`, or do we want strict 0-FIFO ordering + linearizability always.
+                    // This tradeoff may fall differently in different contexts, however it seems reasonable to relax strict FIFO guarantees and linearizability
+                    // and accept N-FIFO semantics while resizing the queue. N-FIFO semantics should in practice keep most of the benefits of 0-FIFO, while still preserving lock-freedom.
                     // Note that we do still preserve `empty-linearizability` here by double collecting:
                     // if the first iteration turns out to be double None, we have two possibilities:
                     // a) the old queue was truly empty at the point of popping from the new queue
@@ -332,12 +382,12 @@ where
             }
         }
 
-        // there was a linearizable time point during an iteration where both queues where truly empty
+        // there was a linearizable time point during an iteration where both collections where truly empty
         None
     }
 
     fn capacity(&self) -> usize {
-        // the capacity of the currently active queue, i.e. the number of elements that can be pushed directly after resize
+        // the capacity of the currently active collection, i.e. the number of elements that can be pushed directly after resize
         loop {
             let push_epoch = self.push_epoch.load(Ordering::Acquire);
             if !self.register_push(push_epoch) {
@@ -350,7 +400,7 @@ where
     }
 
     fn len(&self) -> usize {
-        // the total elements in the queue. Note that len can be > capacity.
+        // the total elements in the collections. Note that len can be > capacity.
         loop {
             let push_epoch = self.push_epoch.load(Ordering::Acquire);
             if !self.register_push(push_epoch) {
@@ -378,7 +428,7 @@ where
     }
 
     fn is_empty(&self) -> bool {
-        // the queue is empty if pop() returns None
+        // the collection is empty if pop() returns None
         loop {
             let push_epoch = self.push_epoch.load(Ordering::Acquire);
             if !self.register_push(push_epoch) {
@@ -406,7 +456,7 @@ where
     }
 
     fn is_full(&self) -> bool {
-        // the queue is full if push() fails
+        // the collection is full if push() fails
         loop {
             let push_epoch = self.push_epoch.load(Ordering::Acquire);
             if !self.register_push(push_epoch) {
@@ -418,14 +468,55 @@ where
             return is_full;
         }
     }
+
+    fn with_capacity(capacity: usize) -> Self {
+        Resizable::with_capacity(capacity)
+    }
 }
 
-impl<T, Q> NewSized for GrowableQueueCore<T, Q>
-where
-    Q: NewSized,
-{
-    #[track_caller]
-    fn with_size(size: usize) -> GrowableQueueCore<T, Q> {
-        GrowableQueueCore::new(size)
+// convenience methods
+
+impl<Q> Resizable<Q> {
+    /// Deconstructs a `Resizable` into its components.
+    ///
+    /// Returns the left and right raw collections currently used by this object.
+    pub fn into_parts(self) -> [Box<Q>; 2] {
+        let left = self.cores[0].swap(null_mut(), Ordering::Acquire);
+        // Safety:
+        // No concurrent owners of this can happen.
+        // This collection was allocated in `new` or in `grow_by` with `Box::into_raw` and was not deallocated since then.
+        // the collection will be dropped after this.
+        let left = unsafe { Box::from_raw(left) };
+
+        let right = self.cores[1].swap(null_mut(), Ordering::Acquire);
+        // Safety:
+        // No concurrent owners of this can happen.
+        // This collection was allocated in `new` or in `grow_by` with `Box::into_raw` and was not deallocated since then.
+        // the collection will be dropped after this.
+        let right = unsafe { Box::from_raw(right) };
+
+        [left, right]
+    }
+
+    /// returns mutable references to both wrapped collections.
+    pub fn parts_mut(&mut self) -> [&mut Q; 2] {
+        // Safety:
+        // We are the only one accessing the wrapped collections.
+        // No need for synchronization.
+        let left = unsafe { &mut **self.cores[0].get_mut() };
+        // Safety:
+        // We are the only one accessing the wrapped collections.
+        // No need for synchronization.
+        let right = unsafe { &mut **self.cores[1].get_mut() };
+
+        [left, right]
+    }
+
+    /// Returns a mutable reference to the currently active raw collection.
+    pub fn current_mut(&mut self) -> &mut Q {
+        // Safety:
+        // We are the only one accessing the wrapped collections.
+        // No need for synchronization.
+        unsafe { &mut **self.cores[*self.push_epoch.get_mut() % 2].get_mut() }
     }
 }
