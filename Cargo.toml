@@ -44,6 +44,7 @@ portable-atomic = { version = "1.13.1", default-features = false, features = ["r
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
 spin = { version = "0.12.0", features = ["lock_api", "rwlock"] }
+crossbeam-queue = "0.3.12"
 
 [target.'cfg(loom)'.dependencies]
 loom = { version = "0.7", features = ["checkpoint"] }

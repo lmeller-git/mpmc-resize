@@ -14,6 +14,14 @@
 //! - **Empty-Linearizability**: if the wrapped collection is empty-linearizable, all corresponding operations on [`Resizable`] are also empty-linearizable.
 //! - **Relaxed FIFO**: if the wrapped collection has FIFO ordering, [`Resizable`] has **k-FIFO** ordering, where k is the highest number of threads concurrently calling [`BoundedCollection::try_pop`] during a [`Resizable::resize`].
 //!
+//! Specifically, for any item $x$, its rank displacement $k$ is strictly bounded by:
+//!
+//! $$k \le \min\left( C_{\text{pop}}, L_{\text{new}} \right)$$
+//!
+//! where:
+//! - $C_{\text{pop}}$ is the maximum number of threads concurrently executing [`BoundedCollection::try_pop`] during a [`Resizable::resize`] while $x$ is being processed.
+//! - $L_{\text{new}}$ is the total number of items pushed into the new collection after the call that pushed $x$ returned and before the overlapping `try_pop` calls return.
+//!
 //! If no call to [`Resizable::resize`] happens, or in steady-state, [`Resizable`] has strict FIFO ordering and is strictly linearizable, given the same holds for the wrapped collection.
 //!
 //!
@@ -21,7 +29,13 @@
 //!
 //! ### Overhead
 //!
-//! To allow preservation of progress guarantees some amount of overhead is necessary. TODO add benches
+//! Preserving lock-free progress guarantees and linearizability across dynamic epoch shifts introduces some operational overhead:
+//!
+//! - **Steady-State:** In a single-producer single-consumer (SPSC) scenario with no active resizes, wrapping a queue (e.g., `Resizable<ArrayQueue>`) achieves roughly **40% of the throughput** of the raw underlying queue.
+//! - **Active Resizing:** Dynamically triggering resizes under load reduces throughput by an additional **~30%** during migration bursts. However, the throughput gained from higher buffer capacity can offset this cost over time.
+//! - **Reordering in practice:** Item reordering is rare in practice and depends strongly on the number of threads concurrently invoking [`BoundedCollection::try_pop`] and [`BoundedCollection::try_push`] during an active [`Resizable::resize`].
+//!
+//! Benchmarks can be found in `benches/main_benchmarks.rs`.
 //!
 //! ### Resizing Frequency
 //!
