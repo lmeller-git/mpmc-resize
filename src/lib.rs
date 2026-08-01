@@ -14,6 +14,9 @@ mod resize;
 mod sync;
 mod utils;
 
+#[cfg(test)]
+mod tests;
+
 pub use resize::Resizable;
 
 /// This trait is used to describe a collection that is wrapped by a [`Resizable`].

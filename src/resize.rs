@@ -181,7 +181,7 @@ where
         #[cfg(not(any(loom, shuttle)))]
         debug_assert!(q.try_pop().is_none());
         #[cfg(any(loom, shuttle))]
-        assert!(q.pop().is_none());
+        assert!(q.try_pop().is_none());
 
         self.is_resizing.store(false, Ordering::Release);
         true
@@ -476,6 +476,7 @@ where
 
 // convenience methods
 
+#[cfg(not(any(loom, shuttle)))]
 impl<Q> Resizable<Q> {
     /// Deconstructs a `Resizable` into its components.
     ///
