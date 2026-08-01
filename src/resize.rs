@@ -267,7 +267,7 @@ where
         let mut backoff = Backoff::new();
         loop {
             let push_epoch = self.push_epoch.load(Ordering::Acquire);
-            self.active_pushes[push_epoch % 2].fetch_add(1, Ordering::Release);
+            self.active_pushes[push_epoch % 2].fetch_add(1, Ordering::SeqCst);
 
             #[cfg(loom)]
             crate::sync::atomic::fence(Ordering::SeqCst);
@@ -476,7 +476,7 @@ where
 
 // convenience methods
 
-#[cfg(not(any(loom, shuttle)))]
+#[cfg(not(any(loom, shuttle, echeneis)))]
 impl<Q> Resizable<Q> {
     /// Deconstructs a `Resizable` into its components.
     ///
@@ -504,13 +504,24 @@ impl<Q> Resizable<Q> {
         // Safety:
         // We are the only one accessing the wrapped collections.
         // No need for synchronization.
+        // left and right can only be null during Drop.
         let left = unsafe { &mut **self.cores[0].get_mut() };
         // Safety:
         // We are the only one accessing the wrapped collections.
         // No need for synchronization.
+        // left and right can only be null during Drop.
         let right = unsafe { &mut **self.cores[1].get_mut() };
 
         [left, right]
+    }
+
+    /// Deconstructs a `Resizable` into its currently active component.
+    ///
+    /// Returns the raw collection currently used by this object.
+    pub fn into_current(mut self) -> Box<Q> {
+        let push_epoch = *self.push_epoch.get_mut();
+        let parts = self.into_parts();
+        parts.into_iter().nth(push_epoch % 2).unwrap()
     }
 
     /// Returns a mutable reference to the currently active raw collection.
@@ -518,6 +529,143 @@ impl<Q> Resizable<Q> {
         // Safety:
         // We are the only one accessing the wrapped collections.
         // No need for synchronization.
+        // left and right can only be null during Drop.
         unsafe { &mut **self.cores[*self.push_epoch.get_mut() % 2].get_mut() }
+    }
+}
+
+#[cfg(not(any(loom, shuttle, echeneis)))]
+impl<Q> Resizable<Q>
+where
+    Q: BoundedCollection,
+{
+    /// Attempts to pop an item from the collection.
+    ///
+    /// This method cicumvents the logic synchronization of `Resizable::try_pop`.
+    pub fn pop_mut(&mut self) -> Option<Q::Item> {
+        let pop_idx = *self.pop_epoch.get_mut() % 2;
+        let push_idx = *self.push_epoch.get_mut() % 2;
+
+        if pop_idx == push_idx {
+            self.current_mut().try_pop()
+        } else {
+            let parts = self.parts_mut();
+            parts[pop_idx].try_pop().or(parts[push_idx].try_pop())
+        }
+    }
+
+    /// Attmepts to push an item into the collection.
+    ///
+    /// This method cicumvents the synchronization logic of `Resizable::try_push`.
+    pub fn push_mut(&mut self, item: Q::Item) -> Result<(), Q::Item> {
+        self.current_mut().try_push(item)
+    }
+
+    /// Clears the collection.
+    pub fn clear(&mut self) {
+        for core in self.parts_mut() {
+            while core.try_pop().is_some() {}
+        }
+    }
+
+    /// Migrates all remaining stale items in the old queue into the currently active queue, while ensuring enough capacity
+    pub fn migrate(&mut self) {
+        let pop_epoch = *self.pop_epoch.get_mut();
+        let push_epoch = *self.push_epoch.get_mut();
+
+        if pop_epoch == push_epoch {
+            return;
+        }
+
+        let parts = self.parts_mut();
+        let pop_queue = &parts[pop_epoch % 2];
+        let push_queue = &parts[push_epoch % 2];
+
+        let total_items = pop_queue.len() + push_queue.len();
+        let empty_collection = Q::with_capacity(total_items);
+
+        while let Some(item) = pop_queue.try_pop() {
+            _ = empty_collection.try_push(item);
+        }
+
+        while let Some(item) = push_queue.try_pop() {
+            _ = empty_collection.try_push(item);
+        }
+
+        let new_queue = Box::into_raw(Box::new(empty_collection));
+
+        // Safety:
+        // since pop_epoch == push_epoch all concurrent threads access the queue at push_epoch % 2.
+        // pop ensures that no pushes are in flight to the old queue anymore and that it is empty. We can safely drop it.
+        let old_queue = self.cores[pop_epoch % 2].swap(new_queue, Ordering::Relaxed);
+
+        self.push_epoch.fetch_add(1, Ordering::Relaxed);
+        self.pop_epoch.store(push_epoch + 1, Ordering::Relaxed);
+
+        // Safety:
+        // old_queue was consrtucted from a Box::into_raw and is dropped only once, as ensured by epoch guards
+        let _q = unsafe { Box::from_raw(old_queue) };
+    }
+
+    // TODO add drain(..)
+}
+
+#[cfg(not(any(loom, shuttle, echeneis)))]
+impl<Q: BoundedCollection> Extend<Q::Item> for Resizable<Q> {
+    fn extend<I: IntoIterator<Item = Q::Item>>(&mut self, iter: I) {
+        for item in iter {
+            if let Err(item) = self.push_mut(item) {
+                // we ran out of space
+                // ensure that we can resize
+                self.migrate();
+                let cap = self.capacity();
+                // make more space
+                self.resize(cap * 2);
+                _ = self.push_mut(item);
+            }
+        }
+    }
+}
+
+/// An iterator over a [`Resizable`]
+pub struct IntoIter<Q: BoundedCollection> {
+    old: Option<Box<Q>>,
+    new: Option<Box<Q>>,
+}
+
+impl<Q: BoundedCollection> Iterator for IntoIter<Q> {
+    type Item = Q::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(old_q) = &mut self.old {
+            if let Some(item) = old_q.try_pop() {
+                return Some(item);
+            }
+            self.old = None;
+        }
+
+        self.new.as_mut().and_then(|q| q.try_pop())
+    }
+}
+
+#[cfg(not(any(loom, shuttle, echeneis)))]
+impl<Q: BoundedCollection> IntoIterator for Resizable<Q> {
+    type IntoIter = IntoIter<Q>;
+    type Item = Q::Item;
+
+    fn into_iter(mut self) -> Self::IntoIter {
+        let push_epoch = *self.push_epoch.get_mut();
+        let [left, right] = self.into_parts();
+
+        let (old, new) = if push_epoch.is_multiple_of(2) {
+            (right, left)
+        } else {
+            (left, right)
+        };
+
+        IntoIter {
+            old: Some(old),
+            new: Some(new),
+        }
     }
 }

@@ -1,4 +1,5 @@
 use crate::{
+    BoundedCollection,
     Resizable,
     tests::test_library::{
         Drops,
@@ -26,6 +27,109 @@ use crate::{
         suppl_methods_chaos,
     },
 };
+
+#[test]
+fn smoke_mut() {
+    let mut queue: ResizeLockedDeque<_> = Resizable::with_capacity(4);
+
+    assert!(queue.push_mut(10).is_ok());
+    assert!(queue.push_mut(20).is_ok());
+    assert!(queue.push_mut(30).is_ok());
+
+    assert_eq!(queue.pop_mut(), Some(10));
+    assert_eq!(queue.pop_mut(), Some(20));
+    assert_eq!(queue.pop_mut(), Some(30));
+    assert_eq!(queue.pop_mut(), None);
+}
+
+#[test]
+fn mut_access() {
+    let mut queue: ResizeLockedDeque<_> = Resizable::with_capacity(4);
+    _ = queue.push_mut(1);
+
+    {
+        let current = queue.current_mut();
+        assert_eq!(current.len(), 1);
+    }
+
+    {
+        let parts = queue.parts_mut();
+        assert_eq!(parts[0].len() + parts[1].len(), 1);
+    }
+}
+
+#[test]
+fn clear_mut() {
+    let mut queue: ResizeLockedDeque<_> = Resizable::with_capacity(4);
+    _ = queue.push_mut(1);
+    _ = queue.push_mut(2);
+    _ = queue.push_mut(3);
+
+    queue.clear();
+
+    assert_eq!(queue.pop_mut(), None);
+}
+
+#[test]
+fn deconstruct() {
+    let mut queue: ResizeLockedDeque<_> = Resizable::with_capacity(4);
+    _ = queue.push_mut(42);
+
+    let current_box = queue.into_current();
+    assert_eq!(current_box.len(), 1);
+}
+
+#[test]
+fn deconstruct_complete() {
+    let mut queue: ResizeLockedDeque<_> = Resizable::with_capacity(4);
+    _ = queue.push_mut(100);
+
+    let [left, right] = queue.into_parts();
+    assert_eq!(left.len() + right.len(), 1);
+}
+
+#[test]
+fn extend() {
+    let mut queue: ResizeLockedDeque<_> = Resizable::with_capacity(2);
+
+    queue.extend([1, 2, 3, 4, 5]);
+
+    let items: Vec<i32> = queue.into_iter().collect();
+    assert_eq!(items, vec![1, 2, 3, 4, 5]);
+}
+
+#[test]
+fn into_iter() {
+    let mut queue: ResizeLockedDeque<_> = Resizable::with_capacity(2);
+    _ = queue.push_mut(1);
+    _ = queue.push_mut(2);
+
+    queue.resize(4);
+    _ = queue.push_mut(3);
+    _ = queue.push_mut(4);
+
+    let collected: Vec<i32> = queue.into_iter().collect();
+    assert_eq!(collected, vec![1, 2, 3, 4]);
+}
+
+#[test]
+fn migrate() {
+    let mut queue: ResizeLockedDeque<_> = Resizable::with_capacity(2);
+    _ = queue.push_mut(10);
+    _ = queue.push_mut(20);
+
+    queue.resize(4);
+    _ = queue.push_mut(30);
+
+    queue.migrate();
+
+    let raw_queue = queue.current_mut();
+
+    assert_eq!(raw_queue.try_pop(), Some(10));
+    assert_eq!(raw_queue.try_pop(), Some(20));
+    assert_eq!(raw_queue.try_pop(), Some(30));
+    assert_eq!(raw_queue.try_pop(), None);
+}
 
 #[test]
 fn smoke_impl() {
