@@ -40,6 +40,8 @@ where
  $P$ is the number of calls to `try_pop` after the first $P$ of the $K$ pushes have finished and before any of the $M$ pops have finished
  $L$ is the number of pushes after $L$ of the $K$ executions have finished but before the $M$ executions have finished.
 
+For the reasoning behind this bound consult the document `docs/RANK.md`.
+
 If no call to [`Resizable::resize`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html#method.resize) happens, or in steady-state, [`Resizable`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html) has strict FIFO ordering and is strictly linearizable, given the same holds for the wrapped collection.
 
 
