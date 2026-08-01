@@ -1,4 +1,4 @@
-//! This crate implements a generic construction which allows dynamically resizing a wrapped datasturcture, while preserving some key properties.
+//! This crate implements a generic construction which allows dynamically resizing a wrapped datastructure, while preserving some key properties.
 //!
 //! ## Property Preservation
 //!
@@ -11,7 +11,7 @@
 //!
 //! ### Ordering and Consistency Guarantees:
 //!
-//! - **Empty-Linearizability**: if the wrapped colection is empty-linearizable, all corresponding operations on [`Resizable`] are also empty-linearizabe.
+//! - **Empty-Linearizability**: if the wrapped collection is empty-linearizable, all corresponding operations on [`Resizable`] are also empty-linearizable.
 //! - **Relaxed FIFO**: if the wrapped collection has FIFO ordering, [`Resizable`] has **k-FIFO** ordering, where k is the highest number of threads concurrently calling [`BoundedCollection::try_pop`] during a [`Resizable::resize`].
 //!
 //! If no call to [`Resizable::resize`] happens, or in steady-state, [`Resizable`] has strict FIFO ordering and is strictly linearizable, given the same holds for the wrapped collection.
@@ -122,7 +122,7 @@ pub trait BoundedCollection {
     /// This method is explicitly allowed to block.
     fn with_capacity(capacity: usize) -> Self;
 
-    /// Attempts to push an push into the collection.
+    /// Attempts to push an item into the collection.
     /// Returns the item as an error if the collection is full.
     fn try_push(&self, item: Self::Item) -> Result<(), Self::Item>;
     /// Attempts to pop an item from the collection.
