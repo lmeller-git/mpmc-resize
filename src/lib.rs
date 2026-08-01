@@ -16,11 +16,15 @@
 //!
 //! Specifically, for any item $x$, its rank displacement $k$ is strictly bounded by:
 //!
-//! $$k \le \min\left( C_{\text{pop}}, L_{\text{new}} \right)$$
+//! $$k \le K - P$$
+//! and the total number of reorderd items per resize by
+//! $$n \le min(K, L, M) - P$$
 //!
-//! where:
-//! - $C_{\text{pop}}$ is the maximum number of threads concurrently executing [`BoundedCollection::try_pop`] during a [`Resizable::resize`] while $x$ is being processed.
-//! - $L_{\text{new}}$ is the total number of items pushed into the new collection after the call that pushed $x$ returned and before the overlapping `try_pop` calls return.
+//! where
+//!  $K$ is the number of concurrent calls to `try_push`
+//!  $M$ is the number of concurren calls to `try_pop` overlapping with the $K$ executions
+//!  $P$ is the number of calls to `try_pop` after the first $P$ of the $K$ pushes have finished and before any of the $M$ pops have finished
+//!  $L$ is the number of pushes after $L$ of the $K$ executions have finished but before the $M$ executions have finished.
 //!
 //! If no call to [`Resizable::resize`] happens, or in steady-state, [`Resizable`] has strict FIFO ordering and is strictly linearizable, given the same holds for the wrapped collection.
 //!
