@@ -657,7 +657,8 @@ impl<Q: BoundedCollection> IntoIterator for Resizable<Q> {
         let push_epoch = *self.push_epoch.get_mut();
         let [left, right] = self.into_parts();
 
-        let (old, new) = if push_epoch.is_multiple_of(2) {
+        #[allow(clippy::manual_is_multiple_of)]
+        let (old, new) = if push_epoch % 2 == 0 {
             (right, left)
         } else {
             (left, right)
