@@ -106,17 +106,3 @@ jobs:
         run: cargo test --lib --all-features
         env:
           RUSTFLAGS: "--cfg shuttle"
-  echeneis:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # tag=v7.0.1
-        with:
-          submodules: true
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # branch=master
-        with:
-          toolchain: stable
-      - name: cargo test echeneis
-        run: cargo test --lib --all-features
-        env:
-          RUSTFLAGS: "--cfg echeneis"

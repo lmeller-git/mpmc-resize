@@ -34,8 +34,7 @@ rust-version = "1.85.0"
 
 [features]
 default = []
-std = ["alloc"]
-alloc = []
+std = []
 atomic-fallback = ["portable-atomic/fallback"]
 
 [dependencies]
@@ -44,6 +43,7 @@ portable-atomic = { version = "1.13.1", default-features = false, features = ["r
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
+spin = { version = "0.12.0", features = ["lock_api", "rwlock"] }
 
 [target.'cfg(loom)'.dependencies]
 loom = { version = "0.7", features = ["checkpoint"] }
@@ -125,7 +125,6 @@ string_add_assign = "warn"
 string_lit_as_bytes = "warn"
 todo = "warn"
 trait_duplication_in_bounds = "warn"
-uninlined_format_args = "warn"
 verbose_file_reads = "warn"
 zero_sized_map_values = "warn"
 
