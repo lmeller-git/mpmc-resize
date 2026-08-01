@@ -17,7 +17,7 @@ jobs:
     name: ${{ matrix.target }}
     strategy:
       matrix:
-        target: [aarch64-unknown-none]
+        target: [aarch64-unknown-none, thumbv7m-none-eabi]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # tag=v7.0.0
         with:
@@ -30,35 +30,3 @@ jobs:
         run: rustup target add ${{ matrix.target }}
       - name: cargo check
         run: cargo check --target ${{ matrix.target }} --no-default-features
-  nostd_fail:
-    runs-on: ubuntu-latest
-    name: ${{ matrix.target }}
-    strategy:
-      matrix:
-        target: [thumbv7m-none-eabi]
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # tag=v7.0.0
-        with:
-          submodules: true
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # branch=master
-        with:
-          toolchain: stable
-      - name: rustup target add ${{ matrix.target }}
-        run: rustup target add ${{ matrix.target }}
-      - name: cargo check
-        run: cargo check --target ${{ matrix.target }} --no-default-features
-        # currently there is no support for this without feature atomic-fallback
-        continue-on-error: true
-        id: check_result
-      - name: verify
-        run: |
-          if [ "${{ steps.check_result.outcome }}" = "failure" ]; then
-            echo "mission failed succesfully"
-            exit 0
-          else
-            echo "no compile err"
-            exit 1
-          fi
-      - name: correct
-        run: cargo check --target ${{ matrix.target }} --no-default-features --features atomic-fallback
