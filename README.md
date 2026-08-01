@@ -1,6 +1,14 @@
+[![Codecov](https://codecov.io/github/lmeller-git/mpmc-resize/coverage.svg?branch=main)](https://codecov.io/gh/lmeller-git/mpmc-resize)
+![CI Test](https://github.com/lmeller-git/mpmc-resize/actions/workflows/test.yml/badge.svg?branch=main)
+![Safety Test](https://github.com/lmeller-git/mpmc-resize/actions/workflows/safety.yml/badge.svg?branch=main)
+![no_std Test](https://github.com/lmeller-git/mpmc-resize/actions/workflows/nostd.yml/badge.svg?branch=main)
+[![Crates.io](https://img.shields.io/crates/v/mpmc-resize)](https://crates.io/crates/mpmc-resize)
+[![Docs.rs](https://docs.rs/mpmc-resize/badge.svg)](https://docs.rs/mpmc-resize)
+
+
 # mpmc-resize
 
-A construction that transform a static collection into a resizable collection.
+A construction that transform a bounded collection into a resizable collection.
 
 <!-- cargo-rdme start -->
 
