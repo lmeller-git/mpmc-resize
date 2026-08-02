@@ -28,17 +28,17 @@ This crate implements a generic construction which allows dynamically resizing a
 - **Relaxed FIFO**: if the wrapped collection has FIFO ordering, [`Resizable`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html) has **k-FIFO** ordering.
 - **Linearizability**: if the wrapped collection is linearizable, all operations on [`Resizable`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html) are also linearizable with respect to its relaxed FIFO specification.
 
-Specifically, for any item $x$, its rank displacement is bounded by:
+Specifically, for any item `x`, its rank displacement is bounded by:
 
-$$\text{rank\\_error}_x \le K$$
+ **rank_error**<sub>x</sub> ≤ *K*
 
 And its delay by:
 
-$$\text{delay}_x \le P$$
+ **delay**<sub>x</sub> ≤ *P*
 
 where
- $K$ is the number of concurrent calls to `try_push`
- $P$ is the number of concurren calls to `try_pop` overlapping with the $K$ executions
+ - *K* is the number of concurrent calls to `try_push`
+ - *P* is the number of concurren calls to `try_pop` overlapping with the $K$ executions
 
 For the reasoning behind this bound consult the document [`docs/Relaxation.md`](https://github.com/lmeller-git/mpmc-resize/tree/main/docs/Relaxation.md).
 
