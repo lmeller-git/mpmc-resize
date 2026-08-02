@@ -26,7 +26,7 @@
 //!  $K$ is the number of concurrent calls to `try_push`
 //!  $M$ is the number of concurren calls to `try_pop` overlapping with the $K$ executions
 //!
-//! For the reasoning behind this bound consult the document `docs/RANK.md`.
+//! For the reasoning behind this bound consult the document `docs/Relaxation.md`.
 //!
 //! If no call to [`Resizable::resize`] happens, or in steady-state, [`Resizable`] has strict FIFO ordering and is strictly linearizable, given the same holds for the wrapped collection.
 //!
