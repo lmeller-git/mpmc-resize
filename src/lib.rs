@@ -11,8 +11,8 @@
 //!
 //! ### Ordering and Consistency Guarantees:
 //!
-//! - **Empty-Linearizability**: if the wrapped collection is empty-linearizable, all corresponding operations on [`Resizable`] are also empty-linearizable.
-//! - **Relaxed FIFO**: if the wrapped collection has FIFO ordering, [`Resizable`] has **k-FIFO** ordering, where k is the highest number of threads concurrently calling [`BoundedCollection::try_pop`] during a [`Resizable::resize`].
+//! - **Relaxed FIFO**: if the wrapped collection has FIFO ordering, [`Resizable`] has **k-FIFO** ordering.
+//! - **Linearizability**: if the wrapped collection is linearizable, all operations on [`Resizable`] are also linearizable with respect to its relaxed FIFO specification.
 //!
 //! Specifically, for any item $x$, its rank displacement is bounded by:
 //!
@@ -29,7 +29,6 @@
 //! For the reasoning behind this bound consult the document [`docs/Relaxation.md`](https://github.com/lmeller-git/mpmc-resize/tree/main/docs/Relaxation.md).
 //!
 //! If no call to [`Resizable::resize`] happens, or in steady-state, [`Resizable`] has strict FIFO ordering and is strictly linearizable, given the same holds for the wrapped collection.
-//!
 //!
 //! ## Limitations
 //!

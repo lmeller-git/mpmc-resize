@@ -22,10 +22,12 @@ use crate::{
 ///
 /// ## Ordering and Consistency Guarantees:
 ///
-/// - **Empty-Linearizability**: if the wrapped collection is empty-linearizable, all corresponding operations on `Resizable` are also empty-linearizable.
-/// - **Relaxed FIFO**: if the wrapped collection has FIFO ordering, `Resizable` has **k-FIFO** ordering, where k is the highest number of threads concurrently calling `try_pop` during a `resize`.
+/// - **Relaxed FIFO**: if the wrapped collection has FIFO ordering, `Resizable` has **k-FIFO** ordering with asymmetric delay and rank error.
+/// - **Linearizability**: if the wrapped collection is linearizable, all operations on `Resizable` are also linearizable with respect to its relaxed FIFO specification.
 ///
 /// If no call to `resize` happens, or in steady-state, `Resizable` has strict FIFO ordering and is strictly linearizable, given the same holds for the wrapped collection.
+///
+/// For more intormation on rank error and delay consult the crate level documentation.
 #[derive(Debug)]
 pub struct Resizable<Q> {
     cores: [AtomicPtr<Q>; 2],
