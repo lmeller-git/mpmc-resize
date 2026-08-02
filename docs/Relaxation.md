@@ -95,10 +95,6 @@ The **delay** of an item $x$ is defined as the number of items enqueued after $t
 
 $$\text{delay}(x) = \max\Big(0, \; D_0(t_d) - E_0(t_e)\Big) + \max\Big(0, \; D_1(t_d) - E_1(t_e)\Big)$$
 
-By vector duality, both quantities are upper-bounded by the 2-dimensional $\ell_1$-norm distance between the enqueue vector at $t_e$ and the dequeue vector at $t_d$:
-
-$$\text{rank\\_error}(x), \; \text{delay}(x) \le \big| E_0(t_e) - D_0(t_d) \big| + \big| E_1(t_e) - D_1(t_d) \big| = \| E(t_e) - D(t_d) \|_1$$
-
 ## Reordering Schedule
 
 To obtain a reordering event we use three concurrent operations in $P$: dequeue, enqueue and resize:
