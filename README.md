@@ -28,19 +28,19 @@ This crate implements a generic construction which allows dynamically resizing a
 - **Empty-Linearizability**: if the wrapped collection is empty-linearizable, all corresponding operations on [`Resizable`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html) are also empty-linearizable.
 - **Relaxed FIFO**: if the wrapped collection has FIFO ordering, [`Resizable`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html) has **k-FIFO** ordering, where k is the highest number of threads concurrently calling [`BoundedCollection::try_pop`](https://docs.rs/mpmc-resize/latest/mpmc_resize/trait.BoundedCollection.html#tymethod.try_pop) during a [`Resizable::resize`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html#method.resize).
 
-Specifically, for any item $x$, its rank displacement $k$ is strictly bounded by:
+Specifically, for any item $x$, its rank displacement is strictly bounded by:
 
-$$k \le K$$
+$$\text{rank\\_error}_x \le K$$
 
 And its delay by:
 
-$$n \le M$$
+$$\text{delay}_x \le P$$
 
 where
  $K$ is the number of concurrent calls to `try_push`
- $M$ is the number of concurren calls to `try_pop` overlapping with the $K$ executions
+ $P$ is the number of concurren calls to `try_pop` overlapping with the $K$ executions
 
-For the reasoning behind this bound consult the document `docs/Relaxation.md`.
+For the reasoning behind this bound consult the document [`docs/Relaxation.md`](https://github.com/lmeller-git/mpmc-resize/tree/main/docs/Relaxation.md).
 
 If no call to [`Resizable::resize`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html#method.resize) happens, or in steady-state, [`Resizable`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html) has strict FIFO ordering and is strictly linearizable, given the same holds for the wrapped collection.
 
