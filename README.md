@@ -30,15 +30,15 @@ This crate implements a generic construction which allows dynamically resizing a
 
 Specifically, for any item $x$, its rank displacement $k$ is strictly bounded by:
 
-$$k \le K - P$$
-and the total number of reorderd items per resize by
-$$n \le min(K, L, M) - P$$
+$$k \le K$$
+
+And its delay by:
+
+$$n \le M$$
 
 where
  $K$ is the number of concurrent calls to `try_push`
  $M$ is the number of concurren calls to `try_pop` overlapping with the $K$ executions
- $P$ is the number of calls to `try_pop` after the first $P$ of the $K$ pushes have finished and before any of the $M$ pops have finished
- $L$ is the number of pushes after $L$ of the $K$ executions have finished but before the $M$ executions have finished.
 
 For the reasoning behind this bound consult the document `docs/RANK.md`.
 

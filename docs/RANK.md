@@ -13,7 +13,9 @@ If one or more items are in-flight while `try_pop` checks `queue0` and the one o
 After these operations have finished, the popping thread will check `queue1`, find an item in it, and return it.
 The first item pushed to `queue0` and the first item pushed to `queue1` have now been reordered.
 
-From this, we can deduce the rank (i.e., the upper bound of the window size for a reordering event):
+In fact this is the only such schedule, because there exists exactly this window in push and pop.
+
+From this, we can deduce the rank (i.e., the upper bound of the window size for a reordering event) and the delay (i.e. the upper bound of the number of times any item can be skipped):
 
 From Condition 1, we know that for any reordering event, at least two distinct threads executing push and pop are necessary and that the first item pushed to `queue0` will be reordered with the first item pushed to `queue1`.
 Thus, if we have $K$ threads executing push, $M$ threads executing pop, and $L$ threads executing push strictly after $L$ of the $K$ threads have returned, then each of the $K$ items pushed to `queue0` can be reordered with one of the $L$ items pushed to `queue1` across all $M$ popping threads.
@@ -26,9 +28,9 @@ At this point we have:
 
 $$k \le \min(L, M) + K$$
 
-$$I \le \min(K, L, M)$$
+$$I \le \min(L, M)$$
 
-where $I$ is the total number of items reordered during this resize event.
+where $I$ is the total number of tiems an item has been skipped during this resize event, i.e. the delay.
 
 
 The upper bound of the rank can be further reduced by applying the strict FIFO ordering of the inner queues `queue0` and `queue1` to the reasoning for Condition 1:
@@ -40,13 +42,23 @@ Even further, ALL reorderings will be of exactly rank $K$, and in essence a batc
 Now define a subset $P$ of $M$ not part of the schedule leading to Condition 1. These threads will not produce reordered items and instead work to reduce the total reordering.
 If $P$ threads succeed in popping a correctly ordered item before item $P$ has been reordered, then this item will not be reordered. Further, these $P$ items are no longer part of the reordered batch of items, thus reducing the effective rank of all subsequent reorderings of this batch to $K - P$.
 
-Thus, the rank of the queue during a resize event is:
+Thus, the rank and delay of the queue during a resize event are:
 
 $$k \le K - P$$
 
-$$I \le \min(K, L, M) - P$$
+$$I \le \min(L, M) - P$$
 
-where $$P \le \min(K, L, M)$$
+where $$P \le \min(L, M)$$
+
+Since $L$ is bounded only by schedule depth, we can in general assume $L$ to be infinite and remove it from the delay bound:
+
+$$I \le M - P$$
+
+Further, since $P$ is 0 in the worst case, the true upper bound for rank and delay is:
+
+$$k \le K$$
+
+$$I \le M$$
 
 We can further see that the bound on $k$ is **tight**, because a scenario where $K = 1, M = 1$ (and thus $P = 0$) can trivially reach the upper bound of $k = 1$.
 
