@@ -49,7 +49,7 @@ resize:
 
 R0: push_epoch = load(push_epoch)
 R1: pop_epoch = load(pop_epoch)
-    if !check_if_eligible then
+    if !check_if_eligible() then // check_if_eligible only allows a new resize, once push_epoch == pop_epoch and all stale reads/writes have migrated
       return false
     end_if
 R2: wait(active_pushes[push_epoch + 1] == 0 && registrations[push_epoch + 1] == 0)
