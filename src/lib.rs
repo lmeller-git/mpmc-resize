@@ -13,6 +13,7 @@
 //!
 //! - **Relaxed FIFO**: if the wrapped collection has FIFO ordering, [`Resizable`] has **k-FIFO** ordering.
 //! - **Linearizability**: if the wrapped collection is linearizable, all operations on [`Resizable`] are also linearizable with respect to its relaxed FIFO specification.
+//! - **Empty-Linearizability**: if the wrapped collection is linearizale, all operations on [`Resizable`] are empty-linearizable with respect to the wrapped collections specification.
 //!
 //! Specifically, for any item `x`, its rank displacement is bounded by:
 //!

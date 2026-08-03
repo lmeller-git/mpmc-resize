@@ -27,6 +27,7 @@ This crate implements a generic construction which allows dynamically resizing a
 
 - **Relaxed FIFO**: if the wrapped collection has FIFO ordering, [`Resizable`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html) has **k-FIFO** ordering.
 - **Linearizability**: if the wrapped collection is linearizable, all operations on [`Resizable`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html) are also linearizable with respect to its relaxed FIFO specification.
+- **Empty-Linearizability**: if the wrapped collection is linearizale, all operations on [`Resizable`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html) are empty-linearizable with respect to the wrapped collections specification.
 
 Specifically, for any item `x`, its rank displacement is bounded by:
 
