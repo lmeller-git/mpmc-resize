@@ -1,3 +1,5 @@
+#![allow(clippy::std_instead_of_alloc, clippy::std_instead_of_core)]
+
 use std::{
     hint::{black_box, spin_loop},
     sync::atomic::{AtomicBool, Ordering},

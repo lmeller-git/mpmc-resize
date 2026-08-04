@@ -1,3 +1,5 @@
+#![allow(clippy::std_instead_of_alloc)]
+
 #[cfg(all(not(loom), not(shuttle), not(echeneis)))]
 mod core;
 #[cfg(loom)]
