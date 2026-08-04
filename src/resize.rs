@@ -141,8 +141,8 @@ where
         // This is safe, because they will revalidate the epoch after registration and NOT actually read the underlying queue.
         // However this means that we may spuriously fail for longer than strictly necessary to ensure noone is actually reading the old queue.
         crate::sync::atomic::fence(Ordering::SeqCst);
-        if self.active_reads[old_idx].load(Ordering::Acquire) != 0
-            || self.active_pushes[old_idx].load(Ordering::Acquire) != 0
+        if self.active_reads[old_idx].load(Ordering::Relaxed) != 0
+            || self.active_pushes[old_idx].load(Ordering::Relaxed) != 0
         {
             return false;
         }
