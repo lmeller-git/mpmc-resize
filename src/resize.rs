@@ -24,6 +24,7 @@ use crate::{
 ///
 /// - **Relaxed FIFO**: if the wrapped collection has FIFO ordering, `Resizable` has **k-FIFO** ordering with asymmetric delay and rank error.
 /// - **Linearizability**: if the wrapped collection is linearizable, all operations on `Resizable` are also linearizable with respect to its relaxed FIFO specification.
+/// - **Empty-Linearizability**: if the wrapped collection is linearizale, all operations on [`Resizable`] are empty-linearizable with respect to the wrapped collections specification.
 ///
 /// If no call to `resize` happens, or in steady-state, `Resizable` has strict FIFO ordering and is strictly linearizable, given the same holds for the wrapped collection.
 ///
@@ -113,12 +114,13 @@ where
 {
     /// Attempts to resize the capacity of the collection to `size` slots.
     ///
-    /// **Note:** This method may block or fail spuriously.
+    /// **Note:** This method may block (on the allocator) or fail spuriously.
     /// Further a growth event may not be considered finished in regards of an other `resize` being possible until some time after the call to `resize`.
     ///
     /// Returns `true` if the resize was successfull, or `false` if
-    /// it failed. Failure can occur due to allocator exhaustion, thread
-    /// contention, or other implementation-specific/spurious conditions.
+    /// it failed. Failure can occur due to thread
+    /// contention, incomplete migration of the previous resize, i.e. staleness of the datastructure,
+    /// or other implementation-specific/spurious conditions.
     pub fn resize(&self, size: usize) -> bool {
         if size == 0 {
             return false;
@@ -132,8 +134,16 @@ where
             return false;
         }
 
-        if self.active_reads[(push_epoch + 1) % 2].load(Ordering::Acquire) != 0 {
-            // could happen if some thread started reading before pop_epoch got updated
+        let old_idx = (push_epoch + 1) % 2;
+
+        // wait on any stale readers of the old queue.
+        // Note that at any point during AND after this check other threads may still register as NEW readers on the OLD queue;
+        // This is safe, because they will revalidate the epoch after registration and NOT actually read the underlying queue.
+        // However this means that we may spuriously fail for longer than strictly necessary to ensure noone is actually reading the old queue.
+        crate::sync::atomic::fence(Ordering::SeqCst);
+        if self.active_reads[old_idx].load(Ordering::Acquire) != 0
+            || self.active_pushes[old_idx].load(Ordering::Acquire) != 0
+        {
             return false;
         }
 
@@ -147,25 +157,10 @@ where
             return false;
         }
 
-        // at this poitn we know that
+        // at this point we know that
         // a) no concurrent resize is happening
         // b) since pop_epoch == push_epoch the old queue is empty.
-        // c) since pop_epoch == push_epoch AND active_reads == 0, we know that active_reads is STILL 0, becasue noone will acces the stale queue
-
-        let old_idx = (push_epoch + 1) % 2;
-        let mut backoff = Backoff::new();
-
-        // wait on any stale readers of the old queue.
-        // Note that at any point during AND after this loop other threads may still register as NEW readers on the OLD queue;
-        // This is safe, because they will revalidate the epoch after registration and NOT actually read the underlying queue.
-        // However this menas that we may spin for longer than strictly necessary to ensure noone is actually reading the old queue.
-        while {
-            crate::sync::atomic::fence(Ordering::SeqCst);
-            self.active_reads[old_idx].load(Ordering::Acquire) != 0
-                || self.active_pushes[old_idx].load(Ordering::Acquire) != 0
-        } {
-            backoff.backoff();
-        }
+        // c) since (b) and active_* were both 0 at some point t, all conccurrent ops that are registered on active_*[old_idx] will now revalidate their epoch before accessing the queue
 
         let new_queue = Box::into_raw(Box::new(Q::with_capacity(size)));
 
@@ -339,9 +334,9 @@ where
                     //
                     // a) continue in the inner loop and block on the active_pushers -> violates non-blocking/obstruction-freedom guarantees
                     // b) check the new container -> opens up the possibilty for item reordering, even in spsc scenarios, i.e. violates FIFO guarantees + linearizability
-                    // It is worth noting here that the extend of reordering per item is bounded exactly by the number of threads concurrently executing `pop` during a `push` AND `resize`
-                    // and the number of items reordered is bounded by exactly those threads calling `push` in this scenario.
-                    // In practice the rank is much lower, because a specific schedule is reuqired for a reordering to happen.
+                    // It is worth noting here that the extend of reordering per item (i.e. the rank error) is bounded exactly by the number of threads concurrently executing `push`
+                    // and the number of items reordered (i.e. the delay) is bounded by exactly those threads calling `pop` in this scenario.
+                    // In practice the rank error and delay are much lower, because a specific schedule is reuqired for a reordering to happen.
                     // c) bail, even though the container is non-empty -> violates linearizability (and emptiness assumptions) in that case.
                     // Even worse: if some active_pusher is indefinitely dead, we will henceforth only bail. Thus this option implicitly blocks on the stalled pusher.
                     //
@@ -377,6 +372,7 @@ where
                 if item.is_some() || push_epoch == pop_epoch {
                     return item;
                 }
+
                 // else do the second collect pass if we come from the slow path
                 #[cfg(any(loom, shuttle))]
                 backoff.backoff();
@@ -384,7 +380,7 @@ where
             }
         }
 
-        // there was a linearizable time point during an iteration where both collections where truly empty
+        // there was a linearizable time point during the iteration where both collections where truly empty
         None
     }
 

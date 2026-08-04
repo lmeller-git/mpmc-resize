@@ -21,7 +21,7 @@ This crate implements a generic construction which allows dynamically resizing a
 - **Lock Freedom**: if the wrapped collection is lock-free, all corresponding operations on [`Resizable`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html) are also lock-free.
 - **Obstruction Freedom**: if the wrapped collection exposes obstruction-free methods, all corresponding operations on [`Resizable`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html) are also obstruction-free.
 
-[`Resizable::resize`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html#method.resize) is blocking both on allocator and stale readers and writers.
+[`Resizable::resize`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html#method.resize) may block on the allocator.
 
 #### Ordering and Consistency Guarantees:
 

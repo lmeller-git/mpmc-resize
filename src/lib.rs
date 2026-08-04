@@ -7,7 +7,7 @@
 //! - **Lock Freedom**: if the wrapped collection is lock-free, all corresponding operations on [`Resizable`] are also lock-free.
 //! - **Obstruction Freedom**: if the wrapped collection exposes obstruction-free methods, all corresponding operations on [`Resizable`] are also obstruction-free.
 //!
-//! [`Resizable::resize`] is blocking both on allocator and stale readers and writers.
+//! [`Resizable::resize`] may block on the allocator.
 //!
 //! ### Ordering and Consistency Guarantees:
 //!
