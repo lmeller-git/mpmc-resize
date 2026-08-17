@@ -15,7 +15,9 @@
 //! - **Linearizability**: if the wrapped collection is linearizable, all operations on [`Resizable`] are also linearizable with respect to its relaxed FIFO specification.
 //! - **Empty-Linearizability**: if the wrapped collection is linearizale, all operations on [`Resizable`] are empty-linearizable with respect to the wrapped collections specification.
 //!
-//! Specifically, for any item `x`, its rank displacement is bounded by:
+//! Under FIFO ordering the relaxation is bounded as folows:
+//!
+//! For any item `x`, its rank displacement is bounded by:
 //!
 //!  **rank_error**<sub>x</sub> ≤ *K*
 //!
@@ -27,9 +29,12 @@
 //!  - *K* is the number of concurrent calls to `try_push`
 //!  - *P* is the number of concurren calls to `try_pop` overlapping with the $K$ executions
 //!
+//! > **Note:** All ordering claims and relaxation bounds are made in the context of collections with FIFO ordering or no ordering.
+//! > Wrapping collections with different specifications may result in unbounded relaxation of those specifications.
+//!
 //! For the reasoning behind this bound consult the document [`docs/Relaxation.md`](https://github.com/lmeller-git/mpmc-resize/tree/main/docs/Relaxation.md).
 //!
-//! If no call to [`Resizable::resize`] happens, or in steady-state, [`Resizable`] has strict FIFO ordering and is strictly linearizable, given the same holds for the wrapped collection.
+//! If no call to [`Resizable::resize`] happens, or in steady-state, [`Resizable`] preserves the ordering specification of the wrapped data structure strictly and is strictly linearizable, given the same holds for the wrapped collection.
 //!
 //! ## Limitations
 //!

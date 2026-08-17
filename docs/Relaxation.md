@@ -53,10 +53,9 @@ resize:
 
 R0: push_epoch = load(push_epoch)
 R1: pop_epoch = load(pop_epoch)
-R2: if !check_if_eligible() then // check_if_eligible only allows a new resize, once push_epoch == pop_epoch and all stale reads/writes have migrated
+R2: if !check_if_eligible_and_register() then // check_if_eligible_and_register only allows a new resize, once push_epoch == pop_epoch and all stale reads/writes have migrated
       return false
     end_if
-R3: wait(active_pushes[push_epoch + 1] == 0 && registrations[push_epoch + 1] == 0)
 R4: swap(queues[push_epoch + 1], new_queue)
 R5: inc(push_epoch)
     cleanup
@@ -137,7 +136,7 @@ Any other concurrent enqueue or dequeue operations linearizing in this interval 
 In either case, such interleavings can only ever reduce the rank and delay of this schedule. Thus we can ignore the influence of these operations and handle $P$ as though they were all linearized in one instant.
 The same argument also applies to $K$.
 
-Since we assume a bounded number of total concurrent operations $T$, $K$ and $P$ are bounded by $K + P + 1 \le T$.
+Since we assume a bounded number of total concurrent operations $N$, $K$ and $P$ are bounded by $K + P + 1 \le N$.
 
 ### Tightness
 
