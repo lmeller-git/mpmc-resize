@@ -43,7 +43,8 @@ where
  - *K* is the number of concurrent calls to `try_push`
  - *P* is the number of concurren calls to `try_pop` overlapping with the $K$ executions
 
-> **Note:** All ordering claims and relaxation bounds are made in the context of collections with FIFO ordering or no ordering.
+> [!NOTE]
+> All ordering claims and relaxation bounds are made in the context of collections with FIFO ordering or no ordering.
 > Wrapping collections with different specifications may result in unbounded relaxation of those specifications.
 
 For the reasoning behind this bound consult the document [`docs/Relaxation.md`](https://github.com/lmeller-git/mpmc-resize/tree/main/docs/Relaxation.md).
