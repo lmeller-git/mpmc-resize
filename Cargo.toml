@@ -32,7 +32,7 @@ members = [
 
 [workspace.package]
 edition = "2024"
-authors = ["Louis Meller louis.meller@icloud.com"]
+authors = ["Louis Meller <louis.meller@icloud.com>"]
 description = "A construction which transforms a bounded collection into a dynamic one"
 documentation = "https://docs.rs/mpmc-resize"
 readme = "README.md"
