@@ -125,6 +125,7 @@ where
         if size == 0 {
             return false;
         }
+        // loom only models `SeqCst` fences correctly, other accesses are degraded.
         #[cfg(loom)]
         crate::sync::atomic::fence(Ordering::SeqCst);
         let push_epoch = self.push_epoch.load(Ordering::SeqCst);
@@ -565,7 +566,9 @@ where
         }
     }
 
-    /// Migrates all remaining stale items in the old queue into the currently active queue, while ensuring enough capacity
+    /// Migrates all remaining stale items in the old queue into the currently active queue, while ensuring enough capacity.
+    ///
+    /// A subsequent call to [`Self::resize`] will succeed.
     pub fn migrate(&mut self) {
         let pop_epoch = *self.pop_epoch.get_mut();
         let push_epoch = *self.push_epoch.get_mut();
@@ -617,7 +620,10 @@ impl<Q: BoundedCollection> Extend<Q::Item> for Resizable<Q> {
                 self.migrate();
                 let cap = self.capacity();
                 // make more space
-                self.resize(cap * 2);
+                debug_assert!(
+                    self.resize(cap * 2),
+                    "resize is promised to succeed after a call to migrate"
+                );
                 _ = self.push_mut(item);
             }
         }
