@@ -157,7 +157,8 @@ fn bench_resize_throughput(c: &mut Criterion) {
                         let current_cap = q.capacity();
 
                         if current_cap >= MAX_CAPACITY {
-                            break;
+                            black_box(42);
+                            thread::yield_now();
                         }
 
                         if q.is_full() {
