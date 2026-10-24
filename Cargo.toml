@@ -10,6 +10,7 @@ keywords.workspace = true
 categories.workspace = true
 readme.workspace = true
 description.workspace = true
+rust-version.workspace = true
 
 include = [
     "src/**/*",
@@ -73,7 +74,7 @@ name = "main_benchmarks"
 harness = false
 
 [workspace.lints.rust]
-unknown-lints = "allow"
+unknown_lints = "allow"
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(loom)', 'cfg(shuttle)', 'cfg(echeneis)'] }
 rust_2018_idioms = { level = "warn", priority = -1 }
 unnameable_types = "warn"
@@ -141,4 +142,4 @@ trait_duplication_in_bounds = "warn"
 verbose_file_reads = "warn"
 zero_sized_map_values = "warn"
 
-disallowed-modules = "warn"
+disallowed_modules = "warn"
