@@ -1,3 +1,8 @@
+# Version 0.1.4
+
+- [FIXED]: race in Resize::resize
+- [ADDED]: add Resizable::drain
+
 # Version 0.1.3
 
 - [FIXED]: race in Resize::resize on stale accesses to old sub collection.
