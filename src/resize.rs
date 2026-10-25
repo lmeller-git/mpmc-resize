@@ -659,10 +659,10 @@ impl<'a, Q: BoundedCollection, I: Iterator<Item = &'a mut Q>> Iterator for Drain
     type Item = Q::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(current) = &mut self.next_up
-            && let Some(item) = current.try_pop()
-        {
-            return Some(item);
+        if let Some(current) = &mut self.next_up {
+            if let Some(item) = current.try_pop() {
+                return Some(item);
+            }
         }
 
         for next in self.cores.by_ref() {
