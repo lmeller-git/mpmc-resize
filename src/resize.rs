@@ -141,8 +141,10 @@ where
         // Note that at any point during AND after this check other threads may still register as NEW readers on the OLD queue;
         // This is safe, because they will revalidate the epoch after registration and NOT actually read the underlying queue.
         // However this means that we may spuriously fail for longer than strictly necessary to ensure noone is actually reading the old queue.
-        if self.active_reads[old_idx].load(Ordering::Acquire) != 0
-            || self.active_pushes[old_idx].load(Ordering::Acquire) != 0
+        #[cfg(loom)]
+        crate::sync::atomic::fence(Ordering::SeqCst);
+        if self.active_reads[old_idx].load(Ordering::SeqCst) != 0
+            || self.active_pushes[old_idx].load(Ordering::SeqCst) != 0
         {
             return false;
         }
@@ -151,7 +153,9 @@ where
             return false;
         }
 
-        if self.push_epoch.load(Ordering::Acquire) != push_epoch {
+        #[cfg(loom)]
+        crate::sync::atomic::fence(Ordering::SeqCst);
+        if self.push_epoch.load(Ordering::SeqCst) != push_epoch {
             // could happen if an entire resize happens between load and this check
             self.is_resizing.store(false, Ordering::Release);
             return false;
@@ -317,10 +321,12 @@ where
                             return item;
                         }
 
+                        #[cfg(loom)]
+                        crate::sync::atomic::fence(Ordering::SeqCst);
                         _ = self.pop_epoch.compare_exchange_weak(
                             pop_epoch,
                             pop_epoch + 1,
-                            Ordering::AcqRel,
+                            Ordering::SeqCst,
                             Ordering::Relaxed,
                         );
 
