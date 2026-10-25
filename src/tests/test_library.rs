@@ -152,7 +152,8 @@ mod stubs {
         assert!(!q.is_full());
     }
 
-    pub(crate) struct Drops(std::rc::Rc<AtomicUsize>);
+    #[derive(Debug)]
+    pub(crate) struct Drops(pub(crate) std::rc::Rc<AtomicUsize>);
 
     impl Drop for Drops {
         fn drop(&mut self) {

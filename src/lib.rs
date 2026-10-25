@@ -132,7 +132,7 @@ mod utils;
 #[cfg(test)]
 mod tests;
 
-pub use resize::{IntoIter, Resizable};
+pub use resize::{Drain, IntoIter, Resizable};
 
 /// This trait is used to describe a collection that is wrapped by a [`Resizable`].
 ///

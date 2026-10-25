@@ -132,6 +132,64 @@ fn migrate() {
 }
 
 #[test]
+fn drain() {
+    let mut queue: ResizeLockedDeque<_> = Resizable::with_capacity(10);
+    let mut d = queue.drain();
+    assert!(d.next().is_none());
+    drop(d);
+    assert!(queue.is_empty());
+
+    for i in 0..10 {
+        queue.push_mut(i).unwrap();
+    }
+    assert!(queue.is_full());
+
+    for (i, item) in queue.drain().enumerate() {
+        assert_eq!(i, item);
+    }
+    assert!(queue.is_empty());
+
+    for i in 0..10 {
+        queue.push_mut(i).unwrap();
+    }
+    assert!(queue.is_full());
+
+    queue.resize(10);
+
+    for i in 10..20 {
+        queue.push_mut(i).unwrap();
+    }
+    assert!(queue.is_full());
+
+    for (i, item) in queue.drain().enumerate() {
+        assert_eq!(i, item);
+    }
+    assert!(queue.is_empty());
+}
+
+#[test]
+fn drain_drops() {
+    let mut queue: ResizeLockedDeque<Drops> = Resizable::with_capacity(2);
+
+    let counter = alloc::rc::Rc::new(crate::sync::atomic::AtomicUsize::new(5));
+
+    for _ in 0..2 {
+        queue.push_mut(Drops(counter.clone())).unwrap();
+    }
+
+    queue.resize(3);
+
+    for _ in 0..3 {
+        queue.push_mut(Drops(counter.clone())).unwrap();
+    }
+
+    _ = queue.drain();
+
+    assert!(queue.is_empty());
+    assert_eq!(counter.load(crate::sync::atomic::Ordering::Acquire), 0);
+}
+
+#[test]
 fn smoke_impl() {
     let q: ResizeLockedDeque<u32> = Resizable::with_capacity(2);
     smoke(q);

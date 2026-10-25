@@ -607,7 +607,18 @@ where
         let _q = unsafe { Box::from_raw(old_queue) };
     }
 
-    // TODO add drain(..)
+    /// Drains all remaining items in the collection.
+    /// Returns an iterator over the drained items.
+    ///
+    /// All remaining items are dropped if the [`Drain`] is dropped.
+    pub fn drain(&mut self) -> Drain<'_, Q, impl Iterator<Item = &mut Q>> {
+        let cores = self.parts_mut();
+
+        Drain {
+            cores: cores.into_iter(),
+            next_up: None,
+        }
+    }
 }
 
 #[cfg(not(any(loom, shuttle, echeneis)))]
@@ -627,6 +638,41 @@ impl<Q: BoundedCollection> Extend<Q::Item> for Resizable<Q> {
                 _ = self.push_mut(item);
             }
         }
+    }
+}
+
+/// An iterator that drains all remaining items from multiple collections.
+///
+/// All remaining items are dropped on [`Drain::drop`].
+pub struct Drain<'a, Q: BoundedCollection, I: Iterator<Item = &'a mut Q>> {
+    cores: I,
+    next_up: Option<&'a mut Q>,
+}
+
+impl<'a, Q: BoundedCollection, I: Iterator<Item = &'a mut Q>> Iterator for Drain<'a, Q, I> {
+    type Item = Q::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(current) = &mut self.next_up
+            && let Some(item) = current.try_pop()
+        {
+            return Some(item);
+        }
+
+        for next in self.cores.by_ref() {
+            if let Some(item) = next.try_pop() {
+                self.next_up.replace(next);
+                return Some(item);
+            }
+        }
+
+        None
+    }
+}
+
+impl<'a, Q: BoundedCollection, I: Iterator<Item = &'a mut Q>> Drop for Drain<'a, Q, I> {
+    fn drop(&mut self) {
+        for _ in self {}
     }
 }
 
