@@ -8,7 +8,7 @@
 
 # mpmc-resize
 
-A construction that transform a bounded collection into a resizable collection.
+A construction that transforms a bounded collection into a resizable collection.
 
 <!-- cargo-rdme start -->
 
