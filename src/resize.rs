@@ -18,7 +18,7 @@ use crate::{
 /// - **Lock Freedom**: if the wrapped collection is lock-free, all corresponding operations on `Resizable` are also lock-free.
 /// - **Obstruction Freedom**: if the wrapped collection exposes obstruction-free methods, all corresponding operations on `Resizable` are also obstruction-free.
 ///
-/// `Resizable::resize` is blocking both on allocator and stale readers and writers.
+/// `Resizable::resize` is blocking on the allocator and may fail while there are stale readers or writers.
 ///
 /// ## Ordering and Consistency Guarantees:
 ///
@@ -65,12 +65,14 @@ where
     /// Constructs a new `Resizable` with capacity `size`.
     #[track_caller]
     pub fn with_capacity(size: usize) -> Resizable<Q> {
+        // The inactive queue is ocnstructed with a cap of 1, because this allows parts_* API as well as iterator and many queues require a capacity > 0.
         Self::from_parts(Q::with_capacity(size), Q::with_capacity(1))
     }
 
     /// Constructs a new `Resizable`
     #[track_caller]
     pub fn new() -> Self {
+        // The inactive queue is ocnstructed with a cap of 1, because this allows parts_* API as well as iterator and many queues require a capacity > 0.
         Self::from_parts(Q::with_capacity(1), Q::with_capacity(1))
     }
 }
@@ -87,6 +89,7 @@ where
 impl<Q> Drop for Resizable<Q> {
     fn drop(&mut self) {
         let left = self.cores[0].swap(null_mut(), Ordering::Acquire);
+        // We check for null here, becasue into_parts leave nulls.
         if !left.is_null() {
             // Safety:
             // No concurrent drops of this ds can happen.
@@ -173,7 +176,9 @@ where
         // pop ensures that no pushes are in flight to the old queue anymore and that it is empty. We can safely drop it.
         let old_queue = self.cores[old_idx].swap(new_queue, Ordering::AcqRel);
 
-        self.push_epoch.fetch_add(1, Ordering::Release);
+        #[cfg(loom)]
+        crate::sync::atomic::fence(Ordering::SeqCst);
+        self.push_epoch.fetch_add(1, Ordering::SeqCst);
 
         // Safety:
         // old_queue was ocnstucted from a Box::into_raw and is dropped only once, as ensured by epoch guards
@@ -293,8 +298,10 @@ where
         // If push_epoch == pop_epoch we only need to do another sweep IF push_epoch has changed by the end of this call
         for _ in 0..2 {
             loop {
-                let push_epoch = self.push_epoch.load(Ordering::Acquire);
-                let pop_epoch = self.pop_epoch.load(Ordering::Acquire);
+                #[cfg(loom)]
+                crate::sync::atomic::fence(Ordering::SeqCst);
+                let push_epoch = self.push_epoch.load(Ordering::SeqCst);
+                let pop_epoch = self.pop_epoch.load(Ordering::SeqCst);
 
                 if pop_epoch != push_epoch {
                     // drain old buffer
@@ -310,7 +317,9 @@ where
                         return item;
                     }
 
-                    if self.active_pushes[pop_epoch % 2].load(Ordering::Acquire) == 0 {
+                    #[cfg(loom)]
+                    crate::sync::atomic::fence(Ordering::SeqCst);
+                    if self.active_pushes[pop_epoch % 2].load(Ordering::SeqCst) == 0 {
                         let Ok(item) = self.try_pop_from(pop_epoch, Self::register_pop) else {
                             #[cfg(any(shuttle, loom))]
                             backoff.backoff();
@@ -591,11 +600,19 @@ where
         let empty_collection = Q::with_capacity(total_items);
 
         while let Some(item) = pop_queue.try_pop() {
-            _ = empty_collection.try_push(item);
+            let r = empty_collection.try_push(item);
+            debug_assert!(
+                r.is_ok(),
+                "The new collection is empty and has enough capacity for all items"
+            );
         }
 
         while let Some(item) = push_queue.try_pop() {
-            _ = empty_collection.try_push(item);
+            let r = empty_collection.try_push(item);
+            debug_assert!(
+                r.is_ok(),
+                "The new collection is empty and has enough capacity for all items"
+            );
         }
 
         let new_queue = Box::into_raw(Box::new(empty_collection));
@@ -637,10 +654,8 @@ impl<Q: BoundedCollection> Extend<Q::Item> for Resizable<Q> {
                 self.migrate();
                 let cap = self.capacity();
                 // make more space
-                debug_assert!(
-                    self.resize(cap * 2),
-                    "resize is promised to succeed after a call to migrate"
-                );
+                let r = self.resize(cap * 2);
+                debug_assert!(r, "resize is promised to succeed after a call to migrate");
                 _ = self.push_mut(item);
             }
         }

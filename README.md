@@ -63,6 +63,12 @@ Preserving lock-free progress guarantees and linearizability across dynamic epoc
 
 Benchmarks can be found in `benches/main_benchmarks.rs`.
 
+#### Memory Overhead
+
+[`Resizable`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html) keeps two copies of the wrapped queue alive after the first resize. Further a stale queue is only deallocated on the next call to [`Resizable::resize`](https://docs.rs/mpmc-resize/latest/mpmc_resize/resize/struct.Resizable.html#method.resize).
+Thus a transiently allocated queue with a high capacity may be kept alive longer than strictly necessary.
+If this is not acceptable, another succesfull resize should be done.
+
 #### Resizing Frequency
 
 The maximum frequency of successful resizes is currently bounded by the speed with which stale accesses get processed.
