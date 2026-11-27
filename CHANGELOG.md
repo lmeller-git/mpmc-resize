@@ -2,6 +2,10 @@
 
 - [FIXED]: Resizable::extend did not call Resizable::resize in release builds, silently dropping items.
 - [FIXED]: Upgrade some atomic orderings in Resizable.
+- [FIXED]: Resizable::pop_mut silently dropped items if both collections contained items.
+- [FIXED]: Resizable::drain did not expect FIFO ordering in all cases.
+- [CHANGED]: Resizable pop_mut and Resizable::clear methods may now finish ongoing resizes.
+- [ADDED]: Add Resizable::try_shrink_stale_mut and Resizable::try_shrink_stale.
 
 # Version 0.1.4
 

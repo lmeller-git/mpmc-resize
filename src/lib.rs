@@ -51,9 +51,9 @@
 //!
 //! ### Memory Overhead
 //!
-//! [`Resizable`] keeps two copies of the wrapped queue alive after the first resize. Further a stale queue is only deallocated on the next call to [`Resizable::resize`].
+//! [`Resizable`] always keeps two instances of the wrapped queue alive. Furthermore a stale queue is only deallocated on the next successfull call to [`Resizable::resize`].
 //! Thus a transiently allocated queue with a high capacity may be kept alive longer than strictly necessary.
-//! If this is not acceptable, another succesfull resize should be done.
+//! If this is not acceptable, [`Resizable::try_shrink_stale`] or [`Resizable::try_shrink_stale_mut`] may be used.
 //!
 //! ### Resizing Frequency
 //!

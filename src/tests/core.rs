@@ -168,6 +168,22 @@ fn drain() {
 }
 
 #[test]
+fn drain_fifo_order() {
+    let mut queue: ResizeLockedDeque<i32> = Resizable::with_capacity(2);
+    assert!(queue.resize(2));
+    // completes one migration
+    assert!(queue.try_shrink_stale_mut());
+
+    queue.try_push(1).unwrap();
+    queue.try_push(2).unwrap();
+    assert!(queue.resize(4));
+    queue.try_push(3).unwrap();
+
+    assert_eq!(queue.drain().collect::<Vec<_>>(), vec![1, 2, 3]);
+    assert!(queue.is_empty());
+}
+
+#[test]
 fn drain_drops() {
     let mut queue: ResizeLockedDeque<Drops> = Resizable::with_capacity(2);
 
@@ -187,6 +203,70 @@ fn drain_drops() {
 
     assert!(queue.is_empty());
     assert_eq!(counter.load(crate::sync::atomic::Ordering::Acquire), 0);
+}
+
+#[test]
+fn free_stale_mut() {
+    let mut queue: ResizeLockedDeque<_> = Resizable::with_capacity(2);
+
+    for _ in 0..2 {
+        queue.push_mut(0).unwrap();
+    }
+
+    assert!(queue.resize(10));
+    assert!(!queue.try_shrink_stale_mut());
+
+    for _ in 0..10 {
+        queue.push_mut(0).unwrap();
+    }
+
+    assert!(!queue.try_shrink_stale());
+
+    for _ in 0..2 {
+        _ = queue.pop_mut().unwrap();
+    }
+
+    assert_eq!(queue.len(), 10);
+    assert_eq!(queue.capacity(), 10);
+    assert_eq!(queue.parts_mut()[0].capacity(), 2);
+    assert!(queue.parts_mut()[0].is_empty());
+    assert!(queue.try_shrink_stale_mut());
+    assert_eq!(queue.parts_mut()[0].capacity(), 1);
+    assert!(queue.parts_mut()[0].is_empty());
+    assert_eq!(queue.len(), 10);
+    assert_eq!(queue.capacity(), 10);
+}
+
+#[test]
+fn free_stale() {
+    let mut queue: ResizeLockedDeque<_> = Resizable::with_capacity(2);
+
+    for _ in 0..2 {
+        queue.try_push(0).unwrap();
+    }
+
+    assert!(queue.resize(10));
+    assert!(!queue.try_shrink_stale());
+
+    for _ in 0..10 {
+        queue.try_push(0).unwrap();
+    }
+
+    assert!(!queue.try_shrink_stale());
+
+    for _ in 0..2 {
+        _ = queue.pop_mut().unwrap();
+    }
+
+    assert_eq!(queue.len(), 10);
+    assert_eq!(queue.capacity(), 10);
+    assert_eq!(queue.parts_mut()[0].capacity(), 2);
+    assert!(queue.parts_mut()[0].is_empty());
+    assert!(queue.try_shrink_stale());
+    assert_eq!(queue.parts_mut()[0].capacity(), 1);
+    assert!(queue.parts_mut()[0].is_empty());
+    assert_eq!(queue.len(), 10);
+    assert_eq!(queue.capacity(), 10);
 }
 
 #[test]

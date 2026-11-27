@@ -120,14 +120,48 @@ where
     /// **Note:** This method may block (on the allocator) or fail spuriously.
     /// Further a growth event may not be considered finished in regards of an other `resize` being possible until some time after the call to `resize`.
     ///
-    /// Returns `true` if the resize was successfull, or `false` if
-    /// it failed. Failure can occur due to thread
-    /// contention, incomplete migration of the previous resize, i.e. staleness of the datastructure,
+    /// Returns `true` on success or no-op, or `false` if the stale queue cannot be replaced yet.
+    ///
+    /// Failure can occur due to thread
+    /// contention, incomplete migration of the previous resize,
     /// or other implementation-specific/spurious conditions.
+    ///
+    /// A collection is considered stale (and thus may be resized) once it has been observed as empty by a call to [`Resizable::try_pop`], [`Resizable::pop_mut`], [`Resizable::clear`] or [`Resizable::try_shrink_stale_mut`].
     pub fn resize(&self, size: usize) -> bool {
-        if size == 0 {
-            return false;
-        }
+        size != 0
+            && self.try_replace_stale_and(
+                |_| true,
+                || Q::with_capacity(size),
+                || {
+                    #[cfg(loom)]
+                    crate::sync::atomic::fence(Ordering::SeqCst);
+                    self.push_epoch.fetch_add(1, Ordering::SeqCst);
+                },
+            )
+    }
+
+    /// Attempts to replace the stale collection with a collection of capacity 1.
+    ///
+    /// For more information refer to [`Resizable::resize`].
+    pub fn try_shrink_stale(&self) -> bool {
+        self.try_replace_stale_and(|now| now.capacity() > 1, || Q::with_capacity(1), || {})
+    }
+
+    /// Attempts to replace the currently stale queue with `build_q()`, then calls `then()` on success, before finishing the resize.
+    ///
+    /// Returns `true` on success or no-op, or `false` if the stale queue cannot be replaced yet.
+    ///
+    /// Failure can occur due to thread
+    /// contention, incomplete migration of the previous resize,
+    /// or other implementation-specific/spurious conditions.
+    ///
+    /// A collection is considered stale (and thus may be resized) once it has been observed as empty by a call to [`Resizable::try_pop`], [`Resizable::pop_mut`], [`Resizable::clear`] or [`Resizable::try_shrink_stale_mut`].
+    fn try_replace_stale_and(
+        &self,
+        should_replace: impl FnOnce(&Q) -> bool,
+        build_q: impl FnOnce() -> Q,
+        then: impl FnOnce(),
+    ) -> bool {
         // loom only models `SeqCst` fences correctly, other accesses are degraded.
         #[cfg(loom)]
         crate::sync::atomic::fence(Ordering::SeqCst);
@@ -164,21 +198,27 @@ where
             return false;
         }
 
+        if !should_replace(self.get_queue(old_idx)) {
+            self.is_resizing.store(false, Ordering::Release);
+            // The operation is a noop
+            return true;
+        }
+
         // at this point we know that
         // a) no concurrent resize is happening
         // b) since pop_epoch == push_epoch the old queue is empty.
         // c) since (b) and active_* were both 0 at some point t, all conccurrent ops that are registered on active_*[old_idx] will now revalidate their epoch before accessing the queue
 
-        let new_queue = Box::into_raw(Box::new(Q::with_capacity(size)));
+        let new_queue = Box::into_raw(Box::new(build_q()));
 
         // Safety:
         // since pop_epoch == push_epoch all concurrent threads acces the queue at push_epoch % 2.
         // pop ensures that no pushes are in flight to the old queue anymore and that it is empty. We can safely drop it.
         let old_queue = self.cores[old_idx].swap(new_queue, Ordering::AcqRel);
 
-        #[cfg(loom)]
-        crate::sync::atomic::fence(Ordering::SeqCst);
-        self.push_epoch.fetch_add(1, Ordering::SeqCst);
+        then();
+
+        self.is_resizing.store(false, Ordering::Release);
 
         // Safety:
         // old_queue was ocnstucted from a Box::into_raw and is dropped only once, as ensured by epoch guards
@@ -189,7 +229,6 @@ where
         #[cfg(any(loom, shuttle))]
         assert!(q.try_pop().is_none());
 
-        self.is_resizing.store(false, Ordering::Release);
         true
     }
 }
@@ -563,7 +602,16 @@ where
             self.current_mut().try_pop()
         } else {
             let parts = self.parts_mut();
-            parts[pop_idx].try_pop().or(parts[push_idx].try_pop())
+            let r = parts[pop_idx]
+                .try_pop()
+                .or_else(|| parts[push_idx].try_pop());
+
+            // `is_empty` is exact under under exclusive access.
+            if parts[pop_idx].is_empty() {
+                *self.pop_epoch.get_mut() += 1;
+            }
+
+            r
         }
     }
 
@@ -579,6 +627,8 @@ where
         for core in self.parts_mut() {
             while core.try_pop().is_some() {}
         }
+
+        *self.pop_epoch.get_mut() = *self.push_epoch.get_mut();
     }
 
     /// Migrates all remaining stale items in the old queue into the currently active queue, while ensuring enough capacity.
@@ -622,8 +672,8 @@ where
         // pop ensures that no pushes are in flight to the old queue anymore and that it is empty. We can safely drop it.
         let old_queue = self.cores[pop_epoch % 2].swap(new_queue, Ordering::Relaxed);
 
-        self.push_epoch.fetch_add(1, Ordering::Relaxed);
-        self.pop_epoch.store(push_epoch + 1, Ordering::Relaxed);
+        *self.push_epoch.get_mut() += 1;
+        *self.pop_epoch.get_mut() = push_epoch + 1;
 
         // Safety:
         // old_queue was consrtucted from a Box::into_raw and is dropped only once, as ensured by epoch guards
@@ -633,14 +683,68 @@ where
     /// Drains all remaining items in the collection.
     /// Returns an iterator over the drained items.
     ///
+    /// Items are yielded in FIFO order.
     /// All remaining items are dropped if the [`Drain`] is dropped.
     pub fn drain(&mut self) -> Drain<'_, Q, impl Iterator<Item = &mut Q>> {
-        let cores = self.parts_mut();
+        // Note: we do not increment pop_epoch here, because a leaked Drain leaves items in the collection.
+        let push_epoch = *self.push_epoch.get_mut();
+        let stale_idx = (push_epoch + 1) % 2;
+
+        let [left, right] = &mut self.cores;
+        // Safety:
+        // We are the only one accessing the wrapped collections.
+        // No need for synchronization.
+        // left and right can only be null during Drop.
+        let (left, right) = unsafe { (&mut **left.get_mut(), &mut **right.get_mut()) };
+
+        let cores = if stale_idx == 0 {
+            [left, right]
+        } else {
+            [right, left]
+        };
 
         Drain {
             cores: cores.into_iter(),
             next_up: None,
         }
+    }
+
+    /// Attempts to replace the stale colletion with a collection of capacity 1.
+    ///
+    /// Does not have to synchronize with concurrent accesses like [`Resizable::try_shrink_stale`] and may complete an ongoing resize.
+    ///
+    /// For more information refer to [`Resizable::try_shrink_stale`].
+    pub fn try_shrink_stale_mut(&mut self) -> bool {
+        let push_epoch = *self.push_epoch.get_mut();
+        let pop_epoch = *self.pop_epoch.get_mut();
+
+        if push_epoch != pop_epoch {
+            if self.parts_mut()[pop_epoch % 2].is_empty() {
+                *self.pop_epoch.get_mut() += 1;
+            } else {
+                return false;
+            }
+        }
+
+        if self.get_queue(push_epoch + 1).capacity() <= 1 {
+            return true;
+        }
+
+        let old_idx = (push_epoch + 1) % 2;
+
+        let new = Box::into_raw(Box::new(Q::with_capacity(1)));
+        let old_queue = core::mem::replace(self.cores[old_idx].get_mut(), new);
+
+        // Safety:
+        // old_queue was ocnstucted from a Box::into_raw and is dropped only once, as ensured by epoch guards
+        let q = unsafe { Box::from_raw(old_queue) };
+
+        #[cfg(not(any(loom, shuttle)))]
+        debug_assert!(q.try_pop().is_none());
+        #[cfg(any(loom, shuttle))]
+        assert!(q.try_pop().is_none());
+
+        true
     }
 }
 

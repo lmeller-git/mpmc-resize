@@ -619,6 +619,7 @@ mod stubs {
                                 break;
                             }
                             _ = q.resize(GROW_STEP + q.capacity());
+                            _ = q.try_shrink_stale();
                             crate::utils::Backoff::new().backoff();
                         }
                     }
@@ -666,6 +667,7 @@ mod stubs {
                     for i in 0..COUNT {
                         while q.try_push(i as u32).is_err() {
                             _ = q.resize(10 + q.capacity());
+                            _ = q.try_shrink_stale();
                             crate::utils::Backoff::new().backoff();
                         }
                     }
@@ -701,6 +703,7 @@ mod stubs {
                     let mut backoff = crate::utils::Backoff::new();
                     for _ in 0..RESIZE_ITER {
                         q.resize(q.capacity().max(2) - 2);
+                        _ = q.try_shrink_stale();
                         backoff.backoff();
                     }
                 });
@@ -789,6 +792,7 @@ mod stubs {
                         if q.resize(10 + q.capacity()) {
                             break;
                         }
+                        _ = q.try_shrink_stale();
                         backoff.backoff();
                     }
                     thread::yield_now();
